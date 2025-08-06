@@ -1,7 +1,6 @@
 package safe_tg
 
 import (
-	"fmt"
 	"strings"
 )
 
