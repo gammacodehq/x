@@ -1,18 +1,22 @@
 package escape_markdown
 
-func EscapeMarkdown(s string) string {
-	escapeMap := map[rune]bool{
-		'*': true, // Asterisk for bold/italic
-		'_': true, // Underscore for bold/italic
-		'`': true, // Backtick for inline code
-		'~': true, // Tilde for strikethrough
-		'#': true, // Hash for headers
-		'-': true, // Hyphen for list markers
-		'!': true, // Exclamation for emphasis (less common, but included)
+var (
+	escapeSet = map[rune]struct{}{
+		'*': {}, // Asterisk for bold/italic
+		'_': {}, // Underscore for bold/italic
+		'`': {}, // Backtick for inline code
+		'~': {}, // Tilde for strikethrough
+		'#': {}, // Hash for headers
+		'-': {}, // Hyphen for list markers
+		'!': {}, // Exclamation for emphasis (less common, but included)
 	}
+)
+
+// EscapeMarkdown ...
+func EscapeMarkdown(s string) string {
 	var result []rune
 	for _, r := range s {
-		if escapeMap[r] {
+		if _, ok := escapeSet[r]; ok {
 			result = append(result, '\\', r)
 		} else {
 			result = append(result, r)
