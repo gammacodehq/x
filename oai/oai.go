@@ -9,8 +9,6 @@ import (
 	"log"
 )
 
-const endpoint = "openrouter.ai/api/v1/chat/completions"
-
 type Response struct {
 	Content          string
 	PromptTokens     int
