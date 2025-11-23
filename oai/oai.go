@@ -1,4 +1,4 @@
-package gen
+package oai
 
 import (
 	"bytes"
