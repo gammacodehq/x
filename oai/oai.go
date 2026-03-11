@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"net/http"
 	"log"
+	"net/http"
 )
 
 type Response struct {
@@ -17,13 +17,22 @@ type Response struct {
 }
 
 type Message struct {
-	Content string
-	Role    string
+	Content any    `json:"content,omitempty"`
+	Role    string `json:"role"`
 }
 
+type ContentPart struct {
+	Type     string    `json:"type"`
+	Text     string    `json:"text,omitempty"`
+	ImageURL *ImageURL `json:"image_url,omitempty"`
+}
+
+type ImageURL struct {
+	URL string `json:"url"`
+}
 
 type Client struct {
-	apiKey string
+	apiKey       string
 	systemPrompt string
 }
 
@@ -39,7 +48,6 @@ func (c Client) Gen(model string, messages []Message) (Response, error) {
 func gen(apiKey string, systemPrompt string, model string, messages []Message) (Response, error) {
 	// Initialize default response
 	respDummy := Response{}
-
 	// Handle local mode
 	if apiKey == "" {
 		respDummy.Content = "Local mode response"
@@ -47,22 +55,19 @@ func gen(apiKey string, systemPrompt string, model string, messages []Message) (
 	}
 
 	// Map messages to API format
-	mappedMessages := make([]map[string]string, 0, len(messages))
-
+	mappedMessages := make([]map[string]interface{}, 0, len(messages))
 	if len(messages) > 1 && messages[0].Role != "system" {
-		mappedMessages = append(mappedMessages, map[string]string{
-			"role": "system",
+		mappedMessages = append(mappedMessages, map[string]interface{}{
+			"role":    "system",
 			"content": systemPrompt,
 		})
 	}
 	for _, msg := range messages {
-		mappedMessages = append(mappedMessages, map[string]string{
-			"role": msg.Role,
+		mappedMessages = append(mappedMessages, map[string]interface{}{
+			"role":    msg.Role,
 			"content": msg.Content,
 		})
 	}
-
-
 	// Prepare the request body
 	requestBody, err := json.Marshal(map[string]interface{}{
 		"model":      model,
