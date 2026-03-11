@@ -17,8 +17,18 @@ type Response struct {
 }
 
 type Message struct {
-	Content string
-	Role    string
+	Content any    `json:"content,omitempty"`
+	Role    string `json:"role"`
+}
+
+type ContentPart struct {
+	Type     string    `json:"type"`
+	Text     string    `json:"text,omitempty"`
+	ImageURL *ImageURL `json:"image_url,omitempty"`
+}
+
+type ImageURL struct {
+	URL string `json:"url"`
 }
 
 type Client struct {
@@ -30,12 +40,12 @@ func New(apiKey, systemPrompt string) *Client {
 	return &Client{apiKey: apiKey, systemPrompt: systemPrompt}
 }
 
-func (c Client) Gen(model string, messages []Message, imageUrl ...string) (Response, error) {
-	return gen(c.apiKey, c.systemPrompt, model, messages, imageUrl...)
+func (c Client) Gen(model string, messages []Message) (Response, error) {
+	return gen(c.apiKey, c.systemPrompt, model, messages)
 }
 
 // Gen generates a response for the given prompt
-func gen(apiKey string, systemPrompt string, model string, messages []Message, imageUrl ...string) (Response, error) {
+func gen(apiKey string, systemPrompt string, model string, messages []Message) (Response, error) {
 	// Initialize default response
 	respDummy := Response{}
 	// Handle local mode
@@ -46,40 +56,17 @@ func gen(apiKey string, systemPrompt string, model string, messages []Message, i
 
 	// Map messages to API format
 	mappedMessages := make([]map[string]interface{}, 0, len(messages))
-	img := ""
-	if len(imageUrl) > 0 {
-		img = imageUrl[0]
-	}
 	if len(messages) > 1 && messages[0].Role != "system" {
 		mappedMessages = append(mappedMessages, map[string]interface{}{
 			"role":    "system",
 			"content": systemPrompt,
 		})
 	}
-	for i, msg := range messages {
-		last := i == len(messages)-1
-		if last && msg.Role == "user" && img != "" {
-			mappedMessages = append(mappedMessages, map[string]interface{}{
-				"role": msg.Role,
-				"content": []map[string]interface{}{
-					{
-						"type": "text",
-						"text": msg.Content,
-					},
-					{
-						"type": "image_url",
-						"image_url": map[string]string{
-							"url": img,
-						},
-					},
-				},
-			})
-		} else {
-			mappedMessages = append(mappedMessages, map[string]interface{}{
-				"role":    msg.Role,
-				"content": msg.Content,
-			})
-		}
+	for _, msg := range messages {
+		mappedMessages = append(mappedMessages, map[string]interface{}{
+			"role":    msg.Role,
+			"content": msg.Content,
+		})
 	}
 	// Prepare the request body
 	requestBody, err := json.Marshal(map[string]interface{}{
