@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"net/http"
 	"log"
+	"net/http"
 )
 
 type Response struct {
@@ -21,9 +21,8 @@ type Message struct {
 	Role    string
 }
 
-
 type Client struct {
-	apiKey string
+	apiKey       string
 	systemPrompt string
 }
 
@@ -31,15 +30,14 @@ func New(apiKey, systemPrompt string) *Client {
 	return &Client{apiKey: apiKey, systemPrompt: systemPrompt}
 }
 
-func (c Client) Gen(model string, messages []Message) (Response, error) {
-	return gen(c.apiKey, c.systemPrompt, model, messages)
+func (c Client) Gen(model string, messages []Message, imageUrl ...string) (Response, error) {
+	return gen(c.apiKey, c.systemPrompt, model, messages, imageUrl...)
 }
 
 // Gen generates a response for the given prompt
-func gen(apiKey string, systemPrompt string, model string, messages []Message) (Response, error) {
+func gen(apiKey string, systemPrompt string, model string, messages []Message, imageUrl ...string) (Response, error) {
 	// Initialize default response
 	respDummy := Response{}
-
 	// Handle local mode
 	if apiKey == "" {
 		respDummy.Content = "Local mode response"
@@ -47,22 +45,42 @@ func gen(apiKey string, systemPrompt string, model string, messages []Message) (
 	}
 
 	// Map messages to API format
-	mappedMessages := make([]map[string]string, 0, len(messages))
-
+	mappedMessages := make([]map[string]interface{}, 0, len(messages))
+	img := ""
+	if len(imageUrl) > 0 {
+		img = imageUrl[0]
+	}
 	if len(messages) > 1 && messages[0].Role != "system" {
-		mappedMessages = append(mappedMessages, map[string]string{
-			"role": "system",
+		mappedMessages = append(mappedMessages, map[string]interface{}{
+			"role":    "system",
 			"content": systemPrompt,
 		})
 	}
-	for _, msg := range messages {
-		mappedMessages = append(mappedMessages, map[string]string{
-			"role": msg.Role,
-			"content": msg.Content,
-		})
+	for i, msg := range messages {
+		last := i == len(messages)-1
+		if last && msg.Role == "user" && img != "" {
+			mappedMessages = append(mappedMessages, map[string]interface{}{
+				"role": msg.Role,
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": msg.Content,
+					},
+					{
+						"type": "image_url",
+						"image_url": map[string]string{
+							"url": img,
+						},
+					},
+				},
+			})
+		} else {
+			mappedMessages = append(mappedMessages, map[string]interface{}{
+				"role":    msg.Role,
+				"content": msg.Content,
+			})
+		}
 	}
-
-
 	// Prepare the request body
 	requestBody, err := json.Marshal(map[string]interface{}{
 		"model":      model,
