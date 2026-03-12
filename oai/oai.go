@@ -73,8 +73,8 @@ func New(apiKey, systemPrompt string) *Client {
 	return &Client{apiKey: apiKey, systemPrompt: systemPrompt}
 }
 
-func (c Client) Gen(model string, messages []Message, tools []Tool) (Response, error) {
-	return gen(c.apiKey, c.systemPrompt, model, messages, tools)
+func (c Client) Gen(model string, messages []Message, tools ...[]Tool) (Response, error) {
+	return gen(c.apiKey, c.systemPrompt, model, messages, tools...)
 }
 
 func genImage(apiKey string, prompt string, model string) (ImageResponse, error) {
@@ -154,7 +154,7 @@ func genImage(apiKey string, prompt string, model string) (ImageResponse, error)
 }
 
 // Gen generates a response for the given prompt
-func gen(apiKey string, systemPrompt string, model string, messages []Message, tools []Tool) (Response, error) {
+func gen(apiKey string, systemPrompt string, model string, messages []Message, tools ...[]Tool) (Response, error) {
 	// Initialize default response
 	respDummy := Response{}
 	// Handle local mode
