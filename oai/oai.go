@@ -11,6 +11,7 @@ import (
 
 type Response struct {
 	Content          any
+	Tools            []ToolResponse
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
@@ -53,42 +54,33 @@ type Tool struct {
 	Function ToolFunction `json:"function"`
 }
 
+type ToolResponse struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
 type ToolFunction struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
 	Parameters  map[string]interface{} `json:"parameters"`
 }
 
-var generateImageTool = Tool{
-	Type: "function",
-	Function: ToolFunction{
-		Name:        "generate_image",
-		Description: "Генерация фото по промпту",
-		Parameters: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"prompt": map[string]interface{}{
-					"type":        "string",
-					"description": "Промпт для генерации фото",
-				},
-			},
-			"required": []string{"prompt"},
-		},
-	},
-}
-
 func New(apiKey, systemPrompt string) *Client {
 	return &Client{apiKey: apiKey, systemPrompt: systemPrompt}
 }
 
-func (c Client) Gen(model string, messages []Message) (Response, error) {
-	return gen(c.apiKey, c.systemPrompt, model, messages)
+func (c Client) Gen(model string, messages []Message, tools []Tool) (Response, error) {
+	return gen(c.apiKey, c.systemPrompt, model, messages, tools)
 }
 
-func genImage(apiKey string, prompt string) (ImageResponse, error) {
+func genImage(apiKey string, prompt string, model string) (ImageResponse, error) {
 	respDummy := ImageResponse{}
 	requestBody, err := json.Marshal(map[string]interface{}{
-		"model": "black-forest-labs/flux.2-max",
+		"model": model,
 		"messages": []map[string]string{
 			{
 				"role":    "user",
@@ -162,7 +154,7 @@ func genImage(apiKey string, prompt string) (ImageResponse, error) {
 }
 
 // Gen generates a response for the given prompt
-func gen(apiKey string, systemPrompt string, model string, messages []Message) (Response, error) {
+func gen(apiKey string, systemPrompt string, model string, messages []Message, tools []Tool) (Response, error) {
 	// Initialize default response
 	respDummy := Response{}
 	// Handle local mode
@@ -193,9 +185,7 @@ func gen(apiKey string, systemPrompt string, model string, messages []Message) (
 			"include": true,
 		},
 		"messages": mappedMessages,
-		"tools": []Tool{
-			generateImageTool,
-		},
+		"tools":    tools,
 	})
 	if err != nil {
 		return respDummy, err
@@ -234,15 +224,8 @@ func gen(apiKey string, systemPrompt string, model string, messages []Message) (
 	var response struct {
 		Choices []struct {
 			Message struct {
-				Content   string `json:"content"`
-				ToolCalls []struct {
-					ID       string `json:"id"`
-					Type     string `json:"type"`
-					Function struct {
-						Name      string `json:"name"`
-						Arguments string `json:"arguments"`
-					} `json:"function"`
-				} `json:"tool_calls"`
+				Content   string         `json:"content"`
+				ToolCalls []ToolResponse `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 		Usage struct {
@@ -255,38 +238,14 @@ func gen(apiKey string, systemPrompt string, model string, messages []Message) (
 	if err != nil {
 		return respDummy, err
 	}
-
 	if len(response.Choices) == 0 {
 		log.Println("No choices", string(body))
 		return respDummy, nil
 	}
-	if len(response.Choices[0].Message.ToolCalls) > 0 {
-		tool := response.Choices[0].Message.ToolCalls[0]
-		var args struct {
-			Prompt string `json:"prompt"`
-		}
-
-		err := json.Unmarshal([]byte(tool.Function.Arguments), &args)
-		if err == nil {
-			log.Println("Prompt:", args.Prompt)
-		}
-		resp, err := genImage(apiKey, args.Prompt)
-		content := ResponsePart{}
-		if err != nil {
-			log.Println("Error generating image:", err)
-			return respDummy, nil
-		}
-		content.Text = response.Choices[0].Message.Content
-		content.ImageURL = resp.ImageURL
-		respDummy.Content = content
-		respDummy.PromptTokens = response.Usage.PromptTokens + resp.PromptTokens
-		respDummy.CompletionTokens = response.Usage.CompletionTokens + resp.CompletionTokens
-		respDummy.TotalTokens = response.Usage.TotalTokens + resp.TotalTokens
-	} else {
-		respDummy.Content = response.Choices[0].Message.Content
-		respDummy.PromptTokens = response.Usage.PromptTokens
-		respDummy.CompletionTokens = response.Usage.CompletionTokens
-		respDummy.TotalTokens = response.Usage.TotalTokens
-	}
+	respDummy.Content = response.Choices[0].Message.Content
+	respDummy.Tools = response.Choices[0].Message.ToolCalls
+	respDummy.PromptTokens = response.Usage.PromptTokens
+	respDummy.CompletionTokens = response.Usage.CompletionTokens
+	respDummy.TotalTokens = response.Usage.TotalTokens
 	return respDummy, nil
 }
