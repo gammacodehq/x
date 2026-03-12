@@ -10,7 +10,7 @@ import (
 )
 
 type Response struct {
-	Content          string
+	Content          any
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
@@ -21,10 +21,22 @@ type Message struct {
 	Role    string `json:"role"`
 }
 
+type ResponsePart struct {
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"`
+}
+
 type ContentPart struct {
 	Type     string    `json:"type"`
 	Text     string    `json:"text,omitempty"`
 	ImageURL *ImageURL `json:"image_url,omitempty"`
+}
+
+type ImageResponse struct {
+	ImageURL         string
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
 }
 
 type ImageURL struct {
@@ -36,12 +48,117 @@ type Client struct {
 	systemPrompt string
 }
 
+type Tool struct {
+	Type     string       `json:"type"`
+	Function ToolFunction `json:"function"`
+}
+
+type ToolFunction struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"`
+}
+
+var generateImageTool = Tool{
+	Type: "function",
+	Function: ToolFunction{
+		Name:        "generate_image",
+		Description: "Генерация фото по промпту",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"prompt": map[string]interface{}{
+					"type":        "string",
+					"description": "Промпт для генерации фото",
+				},
+			},
+			"required": []string{"prompt"},
+		},
+	},
+}
+
 func New(apiKey, systemPrompt string) *Client {
 	return &Client{apiKey: apiKey, systemPrompt: systemPrompt}
 }
 
 func (c Client) Gen(model string, messages []Message) (Response, error) {
 	return gen(c.apiKey, c.systemPrompt, model, messages)
+}
+
+func genImage(apiKey string, prompt string) (ImageResponse, error) {
+	respDummy := ImageResponse{}
+	requestBody, err := json.Marshal(map[string]interface{}{
+		"model": "black-forest-labs/flux.2-max",
+		"messages": []map[string]string{
+			{
+				"role":    "user",
+				"content": prompt,
+			},
+		},
+		"modalities": []string{"image"},
+	})
+	if err != nil {
+		return respDummy, err
+	}
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		"POST",
+		"https://openrouter.ai/api/v1/chat/completions",
+		bytes.NewBuffer(requestBody),
+	)
+	if err != nil {
+		return respDummy, err
+	}
+
+	// Set headers
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	// Send request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return respDummy, err
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return respDummy, err
+	}
+
+	// Parse response
+	var response struct {
+		Choices []struct {
+			Message struct {
+				Images []struct {
+					ImageUrl struct {
+						URL string `json:"url"`
+					} `json:"image_url"`
+				} `json:"images"`
+			} `json:"message"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return respDummy, err
+	}
+	if len(response.Choices) == 0 || len(response.Choices[0].Message.Images) == 0 {
+		log.Println("No images found")
+		return respDummy, nil
+	}
+	respDummy.ImageURL = response.Choices[0].Message.Images[0].ImageUrl.URL
+	respDummy.PromptTokens = response.Usage.PromptTokens
+	respDummy.CompletionTokens = response.Usage.CompletionTokens
+	respDummy.TotalTokens = response.Usage.TotalTokens
+
+	return respDummy, nil
 }
 
 // Gen generates a response for the given prompt
@@ -76,6 +193,9 @@ func gen(apiKey string, systemPrompt string, model string, messages []Message) (
 			"include": true,
 		},
 		"messages": mappedMessages,
+		"tools": []Tool{
+			generateImageTool,
+		},
 	})
 	if err != nil {
 		return respDummy, err
@@ -114,7 +234,15 @@ func gen(apiKey string, systemPrompt string, model string, messages []Message) (
 	var response struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   string `json:"content"`
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Type     string `json:"type"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 		Usage struct {
@@ -132,11 +260,33 @@ func gen(apiKey string, systemPrompt string, model string, messages []Message) (
 		log.Println("No choices", string(body))
 		return respDummy, nil
 	}
+	if len(response.Choices[0].Message.ToolCalls) > 0 {
+		tool := response.Choices[0].Message.ToolCalls[0]
+		var args struct {
+			Prompt string `json:"prompt"`
+		}
 
-	respDummy.Content = response.Choices[0].Message.Content
-	respDummy.PromptTokens = response.Usage.PromptTokens
-	respDummy.CompletionTokens = response.Usage.CompletionTokens
-	respDummy.TotalTokens = response.Usage.TotalTokens
-
+		err := json.Unmarshal([]byte(tool.Function.Arguments), &args)
+		if err == nil {
+			log.Println("Prompt:", args.Prompt)
+		}
+		resp, err := genImage(apiKey, args.Prompt)
+		content := ResponsePart{}
+		if err != nil {
+			log.Println("Error generating image:", err)
+			return respDummy, nil
+		}
+		content.Text = response.Choices[0].Message.Content
+		content.ImageURL = resp.ImageURL
+		respDummy.Content = content
+		respDummy.PromptTokens = response.Usage.PromptTokens + resp.PromptTokens
+		respDummy.CompletionTokens = response.Usage.CompletionTokens + resp.CompletionTokens
+		respDummy.TotalTokens = response.Usage.TotalTokens + resp.TotalTokens
+	} else {
+		respDummy.Content = response.Choices[0].Message.Content
+		respDummy.PromptTokens = response.Usage.PromptTokens
+		respDummy.CompletionTokens = response.Usage.CompletionTokens
+		respDummy.TotalTokens = response.Usage.TotalTokens
+	}
 	return respDummy, nil
 }
