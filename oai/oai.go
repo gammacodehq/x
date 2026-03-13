@@ -10,7 +10,7 @@ import (
 )
 
 type Response struct {
-	Content          any
+	Content          string
 	Tools            []ToolResponse
 	PromptTokens     int
 	CompletionTokens int
