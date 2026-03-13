@@ -78,7 +78,7 @@ func (c Client) Gen(model string, messages []Message, tools ...[]Tool) (Response
 }
 
 func (c Client) GenImage(apiKey string, prompt string, model string) (ImageResponse, error) {
-	return genImage(apiKey, prompt, model)
+	return genImage(c.apiKey, prompt, model)
 }
 
 func genImage(apiKey string, prompt string, model string) (ImageResponse, error) {
