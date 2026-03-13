@@ -77,6 +77,10 @@ func (c Client) Gen(model string, messages []Message, tools ...[]Tool) (Response
 	return gen(c.apiKey, c.systemPrompt, model, messages, tools...)
 }
 
+func (c Client) GenImage(apiKey string, prompt string, model string) (ImageResponse, error) {
+	return genImage(apiKey, prompt, model)
+}
+
 func genImage(apiKey string, prompt string, model string) (ImageResponse, error) {
 	respDummy := ImageResponse{}
 	requestBody, err := json.Marshal(map[string]interface{}{
