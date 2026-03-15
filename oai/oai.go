@@ -18,8 +18,8 @@ type Response struct {
 }
 
 type Message struct {
-	Content interface{}    `json:"content,omitempty"`
-	Role    string `json:"role"`
+	Content interface{} `json:"content,omitempty"`
+	Role    string      `json:"role"`
 }
 
 type ResponsePart struct {
@@ -182,15 +182,18 @@ func gen(apiKey string, systemPrompt string, model string, messages []Message, t
 		})
 	}
 	// Prepare the request body
-	requestBody, err := json.Marshal(map[string]interface{}{
+	reqMap := map[string]interface{}{
 		"model":      model,
 		"max_tokens": 5120,
 		"usage": map[string]bool{
 			"include": true,
 		},
 		"messages": mappedMessages,
-		"tools":    tools,
-	})
+	}
+	if len(tools) > 0 && len(tools[0]) > 0 {
+		reqMap["tools"] = tools
+	}
+	requestBody, err := json.Marshal(reqMap)
 	if err != nil {
 		return respDummy, err
 	}
