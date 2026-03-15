@@ -18,7 +18,7 @@ type Response struct {
 }
 
 type Message struct {
-	Content any    `json:"content,omitempty"`
+	Content interface{}    `json:"content,omitempty"`
 	Role    string `json:"role"`
 }
 
