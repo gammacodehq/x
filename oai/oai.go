@@ -191,7 +191,7 @@ func gen(apiKey string, systemPrompt string, model string, messages []Message, t
 		"messages": mappedMessages,
 	}
 	if len(tools) > 0 && len(tools[0]) > 0 {
-		reqMap["tools"] = tools
+		reqMap["tools"] = tools[0]
 	}
 	requestBody, err := json.Marshal(reqMap)
 	if err != nil {
