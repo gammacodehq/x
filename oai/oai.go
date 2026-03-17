@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -35,7 +34,10 @@ type ContentPart struct {
 }
 
 type ImageResponse struct {
-	ImageURL string
+	ImageURL         string
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
 }
 
 type ImageURL struct {
@@ -43,8 +45,7 @@ type ImageURL struct {
 }
 
 type Client struct {
-	apiKeyOR     string
-	apiKeyRepl   string
+	apiKey       string
 	systemPrompt string
 }
 
@@ -68,40 +69,48 @@ type ToolFunction struct {
 	Parameters  map[string]interface{} `json:"parameters"`
 }
 
-func New(apiKeyOR, apiKeyRepl, systemPrompt string) *Client {
-	return &Client{apiKeyOR: apiKeyOR, apiKeyRepl: apiKeyRepl, systemPrompt: systemPrompt}
+func New(apiKey, systemPrompt string) *Client {
+	return &Client{apiKey: apiKey, systemPrompt: systemPrompt}
 }
 
 func (c Client) Gen(model string, messages []Message, tools ...[]Tool) (Response, error) {
-	return gen(c.apiKeyOR, c.systemPrompt, model, messages, tools...)
+	return gen(c.apiKey, c.systemPrompt, model, messages, tools...)
 }
 
 func (c Client) GenImage(prompt string, model string) (ImageResponse, error) {
-	return genImage(c.apiKeyRepl, prompt, model)
+	return genImage(c.apiKey, prompt, model)
 }
 
 func genImage(apiKey string, prompt string, model string) (ImageResponse, error) {
 	respDummy := ImageResponse{}
-	url := fmt.Sprintf("https://api.replicate.com/v1/models/%s/predictions", model)
-	requestBody, err := json.Marshal(
-		map[string]interface{}{
-			"input": map[string]interface{}{
-				"prompt": prompt,
+	requestBody, err := json.Marshal(map[string]interface{}{
+		"model": model,
+		"messages": []map[string]string{
+			{
+				"role":    "user",
+				"content": prompt,
 			},
-		})
+		},
+		"modalities": []string{"image"},
+	})
+	if err != nil {
+		return respDummy, err
+	}
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		"POST",
+		"https://openrouter.ai/api/v1/chat/completions",
+		bytes.NewBuffer(requestBody),
+	)
 	if err != nil {
 		return respDummy, err
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), "POST", url, bytes.NewBuffer(requestBody))
-	if err != nil {
-		return respDummy, err
-	}
-
-	req.Header.Set("Authorization", "Token "+apiKey)
+	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Prefer", "wait")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 
+	// Send request
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -109,31 +118,42 @@ func genImage(apiKey string, prompt string, model string) (ImageResponse, error)
 	}
 	defer resp.Body.Close()
 
+	// Read response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return respDummy, err
 	}
 
+	// Parse response
 	var response struct {
-		Status string      `json:"status"`
-		Output []string    `json:"output"`
-		Error  interface{} `json:"error"`
+		Choices []struct {
+			Message struct {
+				Images []struct {
+					ImageUrl struct {
+						URL string `json:"url"`
+					} `json:"image_url"`
+				} `json:"images"`
+			} `json:"message"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
 	}
 	err = json.Unmarshal(body, &response)
 	if err != nil {
 		return respDummy, err
 	}
-
-	if response.Status != "succeeded" {
-		log.Println("generation failed", string(body))
+	if len(response.Choices) == 0 || len(response.Choices[0].Message.Images) == 0 {
+		log.Println("No images found")
 		return respDummy, nil
 	}
+	respDummy.ImageURL = response.Choices[0].Message.Images[0].ImageUrl.URL
+	respDummy.PromptTokens = response.Usage.PromptTokens
+	respDummy.CompletionTokens = response.Usage.CompletionTokens
+	respDummy.TotalTokens = response.Usage.TotalTokens
 
-	if len(response.Output) == 0 {
-		log.Println("No choices", string(body))
-		return respDummy, nil
-	}
-	respDummy.ImageURL = response.Output[0]
 	return respDummy, nil
 }
 
